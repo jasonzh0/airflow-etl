@@ -1,0 +1,169 @@
+# Airflow Helm Chart Values
+# Configuration for Airflow 3.x deployment on Kubernetes
+
+# Airflow version
+airflowVersion: "3.0.0"
+
+# Default Airflow image
+defaultAirflowRepository: apache/airflow
+defaultAirflowTag: "3.0.0"
+
+# Executor configuration
+executor: "LocalExecutor"
+
+# Database configuration (PostgreSQL)
+# For local development, the embedded Postgres is fine
+# For production, set enabled: false and use an external database
+# See: https://airflow.apache.org/docs/helm-chart/stable/production-guide.html#database
+postgresql:
+  enabled: true
+  auth:
+    username: airflow
+    password: airflow
+    database: airflow
+  # Override image to use official postgres (bitnami tags may not be available)
+  image:
+    registry: docker.io
+    repository: postgres
+    tag: "16-alpine"  # Official postgres image that works with kind
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClassName: standard  # Use kind's default storage class
+
+# Redis (not needed for LocalExecutor, but included for future CeleryExecutor use)
+redis:
+  enabled: false
+
+# Airflow configuration
+config:
+  core:
+    executor: LocalExecutor
+    parallelism: 32
+    dag_concurrency: 16
+    max_active_runs_per_dag: 16
+    load_examples: "False"
+    dags_are_paused_at_creation: "True"
+  logging:
+    logging_level: INFO
+  api:
+    auth_backend: "airflow.api.auth.backend.basic_auth"
+  webserver:
+    expose_config: "False"
+    base_url: http://localhost:8080
+
+# Users configuration
+users:
+  - username: admin
+    password: admin
+    role: Admin
+    email: admin@example.com
+    firstName: Admin
+    lastName: User
+
+# Webserver configuration
+webserver:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  service:
+    type: ClusterIP
+
+# Scheduler configuration
+scheduler:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# Triggerer configuration (for deferred tasks)
+triggerer:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# DAG processor configuration
+dagProcessor:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# DAGs configuration
+dags:
+  gitSync:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: standard  # Use kind's default storage class
+
+# Logs persistence
+# Disabled for local development with kind (ReadWriteMany not supported by local-path)
+# Logs will be stored in emptyDir (ephemeral, lost on pod restart)
+# For production, enable persistence with a storage class that supports ReadWriteMany
+logs:
+  persistence:
+    enabled: false  # Disable for kind compatibility
+
+# Resource limits for local development
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+
+# Security context
+securityContext:
+  fsGroup: 50000
+  runAsUser: 50000
+
+# Service account
+serviceAccount:
+  create: true
+
+# Pod disruption budget (disabled for local dev)
+podDisruptionBudget:
+  enabled: false
+
+# Network policies (disabled for local dev)
+networkPolicies:
+  enabled: false
+
+# Ingress (disabled - using port-forward for local access)
+ingress:
+  enabled: false
+
+# Metrics (optional, disabled for local dev)
+metrics:
+  enabled: false
+
+# Flower (Celery monitoring, not needed for LocalExecutor)
+flower:
+  enabled: false
+
