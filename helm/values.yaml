@@ -27,6 +27,15 @@ postgresql:
     repository: postgres
     tag: "16-alpine"  # Official postgres image that works with kind
     pullPolicy: IfNotPresent
+  # Official postgres image uses different env vars than bitnami
+  # Override the connection to use our configured user
+  extraEnvVars:
+    - name: POSTGRES_USER
+      value: "airflow"
+    - name: POSTGRES_PASSWORD
+      value: "airflow"
+    - name: POSTGRES_DB
+      value: "airflow"
   persistence:
     enabled: true
     size: 8Gi
@@ -35,6 +44,17 @@ postgresql:
 # Redis (not needed for LocalExecutor, but included for future CeleryExecutor use)
 redis:
   enabled: false
+
+# Database connection configuration
+# Override to use the correct credentials we configured
+data:
+  metadataConnection:
+    user: airflow
+    pass: airflow
+    protocol: postgresql
+    host: airflow-postgresql
+    port: 5432
+    db: airflow
 
 # Airflow configuration
 config:
