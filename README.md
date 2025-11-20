@@ -1,15 +1,17 @@
-# Airflow Kubernetes Setup with Dog Breeds System
+# Airflow 3.1.3 Kubernetes Setup with Dog Breeds System
 
 ![Airflow UI Overview](./docs/airflow.png)
 
 ![Dog Breeds Dashboard](./docs/dashboard.png)
 
+This project sets up **Apache Airflow 3.1.3** on a local Kubernetes cluster using [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) and the official [Apache Airflow Helm chart](https://airflow.apache.org/docs/helm-chart/stable/index.html).
 
-This project sets up Apache Airflow 3.x on a local Kubernetes cluster using [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) and the official [Apache Airflow Helm chart](https://airflow.apache.org/docs/helm-chart/stable/index.html).
+> **Note:** This project uses Airflow 3.1.3, which includes fixes for the Security/Users page bug present in 3.0.0.
 
 It includes a complete **Dog Breeds System** that demonstrates:
 - ✅ Airflow DAG fetching data from external API
 - ✅ Storing data in external PostgreSQL database (in Kubernetes)
+- ✅ **Airflow Assets connected to database records** for data lineage
 - ✅ FastAPI backend serving data from database
 - ✅ React dashboard consuming the API
 - ✅ Complete Kubernetes deployment with proper service communication
@@ -106,34 +108,34 @@ airflow/
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │                      Kubernetes Cluster                      │
-│                                                               │
+│                                                              │
 │  ┌─────────────────┐                                         │
-│  │ Airflow Namespace│                                        │
+│  │ Airflow NS      │                                         │
 │  │  ┌───────────┐  │                                         │
 │  │  │ Scheduler │  │                                         │
-│  │  │ Webserver │  │───┐                                     │
+│  │  │ API Server│  │───┐                                     │
 │  │  │ DAG Files │  │   │                                     │
 │  │  └───────────┘  │   │                                     │
 │  └─────────────────┘   │                                     │
-│                         │                                     │
-│  ┌─────────────────────▼────────────────┐                   │
+│                        │                                     │
+│  ┌─────────────────────▼─────────────────┐                   │
 │  │    Dog Breeds Namespace               │                   │
-│  │  ┌──────────────┐   ┌──────────────┐ │                   │
-│  │  │  PostgreSQL  │◄──│  FastAPI     │ │                   │
-│  │  │   Database   │   │   Backend    │ │                   │
-│  │  │              │   │              │ │                   │
-│  │  │ Port: 5432   │   │ Port: 8000   │ │                   │
-│  │  └──────────────┘   └──────────────┘ │                   │
+│  │  ┌──────────────┐   ┌──────────────┐  │                   │
+│  │  │  PostgreSQL  │◄──│  FastAPI     │  │                   │
+│  │  │   Database   │   │   Backend    │  │                   │
+│  │  │              │   │              │  │                   │
+│  │  │ Port: 5432   │   │ Port: 8000   │  │                   │
+│  │  └──────────────┘   └──────────────┘  │                   │ 
 │  │        │                   │          │                   │
 │  └────────┼───────────────────┼──────────┘                   │
-│           │                   │                               │
+│           │                   │                              │
 │    NodePort: 30432     NodePort: 30800                       │
-└───────────┼───────────────────┼───────────────────────────────┘
+└───────────┼───────────────────┼──────────────────────────────┘
             │                   │
             │                   │
-   ┌────────▼───────┐  ┌────────▼────────┐
+   ┌────────▼───────┐  ┌────────▼─────────┐
    │   Database     │  │  React Dashboard │
    │   Client       │  │  (Vite + React)  │
    │   (psql)       │  │                  │
@@ -144,10 +146,12 @@ airflow/
 ### Data Flow
 
 1. **Airflow DAG** fetches dog breed from Dog API every hour
-2. **DAG** stores breed data in **PostgreSQL** (Kubernetes)
-3. **FastAPI** backend queries database and serves REST API
-4. **React Dashboard** displays breeds via API calls
-5. **Database** accessible for direct queries and debugging
+2. **DAG** stores breed data in **PostgreSQL** (Kubernetes) with asset URI
+3. **Airflow Asset** is created and linked to database record via `asset_uri` column
+4. **FastAPI** backend queries database and serves REST API
+5. **React Dashboard** displays breeds via API calls
+6. **Database** accessible for direct queries and debugging
+7. **Asset Lineage** tracks data from Airflow assets to database records
 
 ## Scripts Overview
 
@@ -208,7 +212,7 @@ If you prefer to run steps manually:
 
 Airflow configuration is managed through `helm/values.yaml`. Key settings include:
 
-- **Airflow Version**: 3.0.0 (configurable)
+- **Airflow Version**: 3.1.3 (configurable)
 - **Executor**: LocalExecutor (can be changed to CeleryExecutor or KubernetesExecutor)
 - **Database**: PostgreSQL (managed by Helm chart)
 - **Resources**: Configured for local development
@@ -264,7 +268,8 @@ The Dog Breeds System demonstrates a complete data pipeline:
 **Features:**
 - UUID primary keys
 - JSONB for flexible data storage
-- Indexes for performance
+- Asset URI column linking to Airflow assets
+- Indexes for performance (including asset_uri index)
 - Views for common queries
 - Triggers for automatic timestamps
 
@@ -297,6 +302,12 @@ The DAG uses environment variables to connect:
 - `DOG_BREEDS_DB_NAME`
 - `DOG_BREEDS_DB_USER`
 - `DOG_BREEDS_DB_PASSWORD`
+
+**Asset-to-Database Connection:**
+- Each DAG run creates an Airflow Asset with URI: `dog_breed://dog_breed_fetcher/{dag_run_id}`
+- The asset URI is stored in the database `asset_uri` column
+- This enables tracking data lineage from Airflow assets to database records
+- Asset metadata includes database connection information for easy reference
 
 #### 4. React Dashboard
 - **Location**: `dashboard/`
@@ -360,11 +371,14 @@ psql -h localhost -p 30432 -U airflow -d dog_breeds_db
 # List tables
 \dt
 
-# Query breeds
-SELECT breed_name, life_expectancy, execution_date 
+# Query breeds with asset URIs
+SELECT breed_name, asset_uri, life_expectancy, execution_date 
 FROM dog_breeds 
 ORDER BY execution_date DESC 
 LIMIT 10;
+
+# Query breeds by asset URI
+SELECT * FROM dog_breeds WHERE asset_uri IS NOT NULL;
 ```
 
 #### 2. Test API
@@ -420,9 +434,14 @@ kubectl logs -n dog-breeds -l component=api --tail=50 -f
 # Edit dags/dog_breed_dag.py
 vim dags/dog_breed_dag.py
 
-# DAG is automatically reloaded by Airflow
+# Copy updated file to pod (DAGs are in PersistentVolume)
+kubectl cp dags/dog_breed_dag.py \
+  $(kubectl get pods -n airflow -l component=scheduler -o name | head -1 | cut -d'/' -f2):/opt/airflow/dags/dog_breed_dag.py \
+  -n airflow
+
+# DAG processor will reload automatically (usually within 30-60 seconds)
 # Check in UI or logs:
-kubectl logs -n airflow -l component=scheduler --tail=50 -f
+kubectl logs -n airflow -l component=dag-processor --tail=50 -f
 ```
 
 #### Update Dashboard
@@ -492,8 +511,8 @@ kubectl get pods -n airflow
 # Scheduler logs
 kubectl logs -n airflow -l component=scheduler --tail=100
 
-# Webserver logs
-kubectl logs -n airflow -l component=webserver --tail=100
+# API Server logs (Airflow 3 uses api-server instead of webserver)
+kubectl logs -n airflow -l component=api-server --tail=100
 
 # Specific pod logs
 kubectl logs -n airflow <pod-name>
@@ -744,27 +763,74 @@ sleep 10
 
 ### Components
 
-- **Webserver**: Airflow UI and API (port 8080)
+- **API Server**: Airflow UI and REST API (port 8080) - replaces webserver in Airflow 3
 - **Scheduler**: Schedules and triggers tasks
 - **Triggerer**: Handles deferred tasks (e.g., sensors)
 - **DAG Processor**: Processes DAG files
-- **PostgreSQL**: Metadata database
+- **PostgreSQL**: Metadata database (Airflow's internal database)
+- **Dog Breeds Database**: External PostgreSQL for storing breed data
 - **Redis**: Message broker (only for CeleryExecutor)
 
 ### Resources
 
 Default resource limits (suitable for local development):
-- Webserver: 1 CPU, 2Gi memory
+- API Server: 1 CPU, 2Gi memory
 - Scheduler: 1 CPU, 2Gi memory
 - Triggerer: 500m CPU, 1Gi memory
 - DAG Processor: 500m CPU, 1Gi memory
 
 Adjust in `helm/values.yaml` if needed.
 
+## Asset-to-Database Connection
+
+The system implements a complete data lineage solution by connecting Airflow Assets to PostgreSQL database records:
+
+### How It Works
+
+1. **Asset Creation**: Each DAG run creates an Airflow Asset with URI format:
+   ```
+   dog_breed://dog_breed_fetcher/{dag_run_id}
+   ```
+
+2. **Database Storage**: The asset URI is stored in the `asset_uri` column of the `dog_breeds` table
+
+3. **Metadata Linking**: Asset metadata includes:
+   - Database connection information
+   - Table and schema details
+   - Linked fields (dag_id, dag_run_id, execution_date)
+
+4. **Query Capabilities**: You can now:
+   - Query breeds by asset URI
+   - Track which asset events correspond to which database records
+   - View data lineage in Airflow UI
+
+### Example Queries
+
+```sql
+-- Find breeds by asset URI
+SELECT * FROM dog_breeds 
+WHERE asset_uri = 'dog_breed://dog_breed_fetcher/manual__2025-11-20T22:07:25.403544+00:00_ozkpOpRq';
+
+-- List all breeds with asset URIs
+SELECT breed_name, asset_uri, dag_run_id, execution_date 
+FROM dog_breeds 
+WHERE asset_uri IS NOT NULL 
+ORDER BY execution_date DESC;
+```
+
+### Viewing in Airflow UI
+
+1. Navigate to **Assets** in the Airflow UI
+2. Find the asset: `dog_breed://dog_breed_fetcher`
+3. View asset events and lineage
+4. Each event links to a database record via the asset URI
+
 ## References
 
 - [Apache Airflow Documentation](https://airflow.apache.org/docs/)
+- [Airflow 3.1.3 Release Notes](https://airflow.apache.org/docs/apache-airflow/stable/release_notes.html)
 - [Airflow Helm Chart Documentation](https://airflow.apache.org/docs/helm-chart/stable/index.html)
+- [Airflow Assets Documentation](https://airflow.apache.org/docs/apache-airflow/stable/concepts/assets.html)
 - [kind Documentation](https://kind.sigs.k8s.io/)
 - [Helm Documentation](https://helm.sh/docs/)
 

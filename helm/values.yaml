@@ -2,11 +2,11 @@
 # Configuration for Airflow 3.x deployment on Kubernetes
 
 # Airflow version
-airflowVersion: "3.0.0"
+airflowVersion: "3.1.3"
 
 # Default Airflow image
 defaultAirflowRepository: apache/airflow
-defaultAirflowTag: "3.0.0"
+defaultAirflowTag: "3.1.3"
 
 # Executor configuration
 executor: "LocalExecutor"
