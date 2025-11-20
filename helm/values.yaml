@@ -96,6 +96,10 @@ webserver:
   service:
     type: ClusterIP
 
+# Webserver secret key (required to prevent unnecessary restarts)
+# Generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
+webserverSecretKey: "a8be0bce2df648afafe3afb1f290f0734e53d5216c8ff2e69a0619638ccaa05b"
+
 # Scheduler configuration
 scheduler:
   enabled: true
