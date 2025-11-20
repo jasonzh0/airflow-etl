@@ -1,6 +1,7 @@
 """
 Airflow DAG to fetch a random dog breed from the Dog API
 API Documentation: https://dogapi.dog/docs/api-v2
+Stores breed data in external PostgreSQL database
 """
 
 from datetime import datetime, timedelta
@@ -12,9 +13,33 @@ import requests
 import json
 import random
 import logging
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import os
 
 # Set up logging - use Airflow's task logger for better UI compatibility
+# Note: In Airflow tasks, we'll get the logger from the context
 logger = logging.getLogger(__name__)
+
+# Database connection configuration
+# In Kubernetes, this will connect to the dog-breeds-db service
+DB_CONFIG = {
+    'host': os.getenv('DOG_BREEDS_DB_HOST', 'dog-breeds-db.dog-breeds.svc.cluster.local'),
+    'port': os.getenv('DOG_BREEDS_DB_PORT', '5432'),
+    'database': os.getenv('DOG_BREEDS_DB_NAME', 'dog_breeds_db'),
+    'user': os.getenv('DOG_BREEDS_DB_USER', 'airflow'),
+    'password': os.getenv('DOG_BREEDS_DB_PASSWORD', 'airflow'),
+}
+
+def get_db_connection():
+    """Create and return a database connection"""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        logger.info(f"✅ Connected to database: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}")
+        return conn
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to database: {e}")
+        raise
 
 # Default arguments for the DAG
 default_args = {
@@ -39,9 +64,12 @@ dag = DAG(
 
 def fetch_random_dog_breed(**context):
     """
-    Fetch a random dog breed from the Dog API
+    Fetch a random dog breed from the Dog API and store it in the database
     API: https://dogapi.dog/docs/api-v2
     """
+    # Get Airflow task logger for better log visibility
+    task_logger = logging.getLogger("airflow.task")
+    
     try:
         # Dog API endpoint for breeds
         api_url = "https://dogapi.dog/api/v2/breeds"
@@ -77,27 +105,35 @@ def fetch_random_dog_breed(**context):
                     breed_info = {
                         'breed_name': attrs.get('name', 'Unknown'),
                         'description': attrs.get('description', 'No description available'),
-                        'life_min': attrs.get('life', {}).get('min', 'N/A') if isinstance(attrs.get('life'), dict) else 'N/A',
-                        'life_max': attrs.get('life', {}).get('max', 'N/A') if isinstance(attrs.get('life'), dict) else 'N/A',
+                        'life_min': attrs.get('life', {}).get('min', None) if isinstance(attrs.get('life'), dict) else None,
+                        'life_max': attrs.get('life', {}).get('max', None) if isinstance(attrs.get('life'), dict) else None,
                     }
                 else:
                     # Direct attributes
                     breed_info = {
                         'breed_name': random_breed.get('name', random_breed.get('breed', 'Unknown')),
                         'description': random_breed.get('description', 'No description available'),
-                        'life_min': random_breed.get('life_min', 'N/A'),
-                        'life_max': random_breed.get('life_max', 'N/A'),
+                        'life_min': random_breed.get('life_min', None),
+                        'life_max': random_breed.get('life_max', None),
                     }
             
             breed_name = breed_info.get('breed_name', 'Unknown')
             description = breed_info.get('description', 'No description available')
-            life_min = breed_info.get('life_min', 'N/A')
-            life_max = breed_info.get('life_max', 'N/A')
+            life_min = breed_info.get('life_min')
+            life_max = breed_info.get('life_max')
+            
+            # Format life expectancy string
+            if life_min and life_max:
+                life_expectancy = f"{life_min}-{life_max} years"
+            else:
+                life_expectancy = 'N/A'
             
             result = {
                 'breed_name': breed_name,
                 'description': description,
-                'life_expectancy': f"{life_min}-{life_max} years" if life_min != 'N/A' and life_max != 'N/A' else 'N/A',
+                'life_expectancy': life_expectancy,
+                'life_min': life_min,
+                'life_max': life_max,
                 'full_data': random_breed
             }
             
@@ -106,17 +142,98 @@ def fetch_random_dog_breed(**context):
             if result['life_expectancy'] != 'N/A':
                 logger.info(f"Life Expectancy: {result['life_expectancy']}")
             
+            # Store in database
+            logger.info("=" * 80)
+            logger.info("STARTING DATABASE INSERT OPERATION")
+            logger.info("=" * 80)
+            try:
+                logger.info(f"Attempting to connect to database...")
+                logger.info(f"DB Config: host={DB_CONFIG['host']}, port={DB_CONFIG['port']}, db={DB_CONFIG['database']}, user={DB_CONFIG['user']}")
+                
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                
+                # Get DAG run context
+                dag_run = context['dag_run']
+                ti = context['ti']
+                
+                # Handle execution_date - use logical_date or current time if None
+                execution_date = context.get('execution_date') or context.get('logical_date') or dag_run.logical_date or datetime.utcnow()
+                if execution_date and isinstance(execution_date, str):
+                    execution_date = datetime.fromisoformat(execution_date.replace('Z', '+00:00'))
+                
+                logger.info(f"Inserting breed: {breed_name} for DAG run: {dag_run.run_id}")
+                logger.info(f"Execution date: {execution_date}")
+                logger.info(f"DAG ID: {ti.dag_id}, Task ID: {ti.task_id}")
+                
+                insert_query = """
+                    INSERT INTO dog_breeds (
+                        breed_name, description, life_expectancy, life_min, life_max,
+                        dag_id, dag_run_id, task_id, execution_date, full_data
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (dag_run_id, breed_name) 
+                    DO UPDATE SET
+                        description = EXCLUDED.description,
+                        life_expectancy = EXCLUDED.life_expectancy,
+                        life_min = EXCLUDED.life_min,
+                        life_max = EXCLUDED.life_max,
+                        full_data = EXCLUDED.full_data,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING id;
+                """
+                
+                logger.info(f"Executing INSERT query with values:")
+                logger.info(f"  breed_name={breed_name}")
+                logger.info(f"  dag_id={ti.dag_id}")
+                logger.info(f"  dag_run_id={dag_run.run_id}")
+                logger.info(f"  task_id={ti.task_id}")
+                logger.info(f"  execution_date={execution_date}")
+                
+                cursor.execute(insert_query, (
+                    breed_name,
+                    description,
+                    life_expectancy,
+                    life_min,
+                    life_max,
+                    ti.dag_id,
+                    dag_run.run_id,
+                    ti.task_id,
+                    execution_date,
+                    json.dumps(random_breed)
+                ))
+                
+                breed_id = cursor.fetchone()[0]
+                conn.commit()
+                
+                logger.info("=" * 80)
+                logger.info(f"✅ SUCCESSFULLY STORED BREED IN DATABASE!")
+                logger.info(f"   Breed ID: {breed_id}")
+                logger.info(f"   Database: {DB_CONFIG['host']}/{DB_CONFIG['database']}")
+                logger.info("=" * 80)
+                
+                cursor.close()
+                conn.close()
+                
+            except Exception as db_error:
+                logger.error("=" * 80)
+                logger.error(f"❌ FAILED TO STORE BREED IN DATABASE!")
+                logger.error(f"   Error: {db_error}")
+                logger.error("=" * 80)
+                import traceback
+                logger.error(traceback.format_exc())
+                # Continue even if database write fails
+            
             # Log the full breed data (can be viewed in Airflow UI)
             logger.debug(f"Full breed data:\n{json.dumps(random_breed, indent=2)}")
             
             # Update asset with breed data
-            # The asset is defined at DAG level and will be updated when task completes
             logger.info(f"💾 Asset will be stored: dog_breed://random_breed")
             logger.info(f"   Breed: {breed_name}")
             logger.info(f"   Life Expectancy: {result['life_expectancy']}")
             
             # Store result in XCom for downstream tasks if needed
-            # The asset metadata is automatically tracked by Airflow when task completes
             return result
         else:
             logger.warning("No breeds found in API response")

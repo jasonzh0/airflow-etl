@@ -111,6 +111,38 @@ scheduler:
     limits:
       cpu: 1000m
       memory: 2Gi
+  # Environment variables for Dog Breeds Database connection
+  env:
+    - name: DOG_BREEDS_DB_HOST
+      valueFrom:
+        configMapKeyRef:
+          name: dog-breeds-db-connection
+          key: DOG_BREEDS_DB_HOST
+          optional: true
+    - name: DOG_BREEDS_DB_PORT
+      valueFrom:
+        configMapKeyRef:
+          name: dog-breeds-db-connection
+          key: DOG_BREEDS_DB_PORT
+          optional: true
+    - name: DOG_BREEDS_DB_NAME
+      valueFrom:
+        configMapKeyRef:
+          name: dog-breeds-db-connection
+          key: DOG_BREEDS_DB_NAME
+          optional: true
+    - name: DOG_BREEDS_DB_USER
+      valueFrom:
+        configMapKeyRef:
+          name: dog-breeds-db-connection
+          key: DOG_BREEDS_DB_USER
+          optional: true
+    - name: DOG_BREEDS_DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: dog-breeds-db-connection
+          key: DOG_BREEDS_DB_PASSWORD
+          optional: true
 
 # Triggerer configuration (for deferred tasks)
 triggerer:
@@ -191,3 +223,7 @@ metrics:
 flower:
   enabled: false
 
+# Extra Python packages to install
+extraPipPackages:
+  - "psycopg2-binary==2.9.9"
+  - "requests==2.31.0"

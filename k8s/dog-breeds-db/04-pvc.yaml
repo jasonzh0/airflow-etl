@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dog-breeds-db-pvc
+  namespace: dog-breeds
+  labels:
+    app: dog-breeds
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # For kind/local development, this will use the default storage class
+  # storageClassName: standard
+

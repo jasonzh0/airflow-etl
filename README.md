@@ -1,6 +1,18 @@
-# Airflow 3 Kubernetes Setup
+# Airflow Kubernetes Setup with Dog Breeds System
+
+![Airflow UI Overview](./docs/airflow.png)
+
+![Dog Breeds Dashboard](./docs/dashboard.png)
+
 
 This project sets up Apache Airflow 3.x on a local Kubernetes cluster using [kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) and the official [Apache Airflow Helm chart](https://airflow.apache.org/docs/helm-chart/stable/index.html).
+
+It includes a complete **Dog Breeds System** that demonstrates:
+- ✅ Airflow DAG fetching data from external API
+- ✅ Storing data in external PostgreSQL database (in Kubernetes)
+- ✅ FastAPI backend serving data from database
+- ✅ React dashboard consuming the API
+- ✅ Complete Kubernetes deployment with proper service communication
 
 ## Prerequisites
 
@@ -17,38 +29,43 @@ Before getting started, ensure you have the following tools installed:
 
 ## Quick Start
 
-### 1. Check Prerequisites
-
-Run the prerequisites check script to verify all required tools are installed:
+### Option 1: Complete System (Airflow + Dog Breeds)
 
 ```bash
+# 1. Check prerequisites
 ./scripts/check-prerequisites.sh
+
+# 2. Deploy Airflow
+./scripts/start-airflow.sh
+
+# 3. Deploy Dog Breeds System (Database + API)
+./scripts/deploy-all.sh
+
+# 4. Start Dashboard
+cd dashboard
+npm install
+npm run dev
 ```
 
-This script will:
-- Verify Docker, kubectl, kind, and Helm are installed
-- Check if Docker daemon is running
-- Attempt to install missing tools (where possible)
+**Access Points:**
+- **Airflow UI**: http://localhost:8080 (admin/admin)
+- **Dog Breeds API**: http://localhost:30800
+- **API Docs**: http://localhost:30800/docs
+- **Dashboard**: http://localhost:5173
+- **Database**: localhost:30432
 
-### 2. Start Airflow
-
-The easiest way to get started is to use the all-in-one start script:
+### Option 2: Airflow Only
 
 ```bash
+# 1. Check prerequisites
+./scripts/check-prerequisites.sh
+
+# 2. Start Airflow (all-in-one)
 ./scripts/start-airflow.sh
+
+# 3. Access Airflow UI
+open http://localhost:8080
 ```
-
-This script will:
-1. Check prerequisites
-2. Create a kind cluster named `airflow-cluster`
-3. Deploy Airflow using Helm
-4. Set up port forwarding to access the UI
-
-### 3. Access Airflow UI
-
-Once the deployment is complete, access the Airflow UI at:
-
-**http://localhost:8080**
 
 **Default credentials:**
 - Username: `admin`
@@ -56,23 +73,106 @@ Once the deployment is complete, access the Airflow UI at:
 
 > **Note:** You can change the default credentials in `helm/values.yaml` before deployment.
 
+## Project Structure
+
+```
+airflow/
+├── dags/                       # Airflow DAG files
+│   └── dog_breed_dag.py       # Dog breed fetcher DAG (stores in DB)
+├── dashboard/                  # React dashboard
+│   └── src/
+│       ├── api.ts             # API client (connects to FastAPI)
+│       └── components/        # React components
+├── api/                       # FastAPI backend
+│   ├── main.py               # FastAPI application
+│   ├── Dockerfile            # API container image
+│   └── requirements.txt      # Python dependencies
+├── k8s/                       # Kubernetes manifests
+│   ├── dog-breeds-db/        # PostgreSQL database
+│   ├── dog-breeds-api/       # FastAPI backend
+│   └── airflow/              # Generated Airflow templates (optional)
+├── helm/                      # Helm values
+│   └── values.yaml           # Airflow Helm configuration
+├── scripts/                   # Deployment scripts
+│   ├── start-airflow.sh      # Quick start Airflow
+│   ├── deploy-all.sh         # Deploy complete system
+│   ├── deploy-dog-breeds-db.sh   # Deploy database
+│   ├── deploy-dog-breeds-api.sh  # Deploy API
+│   └── ...                   # Other management scripts
+└── database/                  # Database schema
+    └── schema.sql            # PostgreSQL schema
+```
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Kubernetes Cluster                      │
+│                                                               │
+│  ┌─────────────────┐                                         │
+│  │ Airflow Namespace│                                        │
+│  │  ┌───────────┐  │                                         │
+│  │  │ Scheduler │  │                                         │
+│  │  │ Webserver │  │───┐                                     │
+│  │  │ DAG Files │  │   │                                     │
+│  │  └───────────┘  │   │                                     │
+│  └─────────────────┘   │                                     │
+│                         │                                     │
+│  ┌─────────────────────▼────────────────┐                   │
+│  │    Dog Breeds Namespace               │                   │
+│  │  ┌──────────────┐   ┌──────────────┐ │                   │
+│  │  │  PostgreSQL  │◄──│  FastAPI     │ │                   │
+│  │  │   Database   │   │   Backend    │ │                   │
+│  │  │              │   │              │ │                   │
+│  │  │ Port: 5432   │   │ Port: 8000   │ │                   │
+│  │  └──────────────┘   └──────────────┘ │                   │
+│  │        │                   │          │                   │
+│  └────────┼───────────────────┼──────────┘                   │
+│           │                   │                               │
+│    NodePort: 30432     NodePort: 30800                       │
+└───────────┼───────────────────┼───────────────────────────────┘
+            │                   │
+            │                   │
+   ┌────────▼───────┐  ┌────────▼────────┐
+   │   Database     │  │  React Dashboard │
+   │   Client       │  │  (Vite + React)  │
+   │   (psql)       │  │                  │
+   └────────────────┘  │  Port: 5173      │
+                       └──────────────────┘
+```
+
+### Data Flow
+
+1. **Airflow DAG** fetches dog breed from Dog API every hour
+2. **DAG** stores breed data in **PostgreSQL** (Kubernetes)
+3. **FastAPI** backend queries database and serves REST API
+4. **React Dashboard** displays breeds via API calls
+5. **Database** accessible for direct queries and debugging
+
 ## Scripts Overview
 
-The project includes several helper scripts in the `scripts/` directory:
+The project includes several helper scripts in the `scripts/` directory. See [`scripts/README.md`](scripts/README.md) for detailed documentation.
 
-### Setup Scripts
+### Quick Reference
 
-- **`check-prerequisites.sh`** - Verify all required tools are installed
-- **`setup-kind-cluster.sh`** - Create and configure the kind cluster
-- **`deploy-airflow.sh`** - Deploy Airflow to Kubernetes using Helm
+#### Airflow Scripts
+- **`start-airflow.sh`** - Complete Airflow setup
+- **`deploy-airflow.sh`** - Deploy/upgrade Airflow
+- **`stop-airflow.sh`** - Stop Airflow with options
+- **`cleanup.sh`** - Remove everything
 
-### Management Scripts
+#### Dog Breeds System Scripts
+- **`deploy-all.sh`** - Deploy database + API + configure Airflow
+- **`deploy-dog-breeds-db.sh`** - Deploy PostgreSQL database
+- **`deploy-dog-breeds-api.sh`** - Build and deploy FastAPI
+- **`setup-airflow-db-connection.sh`** - Configure Airflow connection
 
-- **`start-airflow.sh`** - Complete setup: cluster + deployment + port forwarding
-- **`stop-airflow.sh`** - Stop Airflow (with options to keep/delete deployment)
-- **`port-forward.sh`** - Set up port forwarding to access Airflow UI
-- **`status.sh`** - Check the status of cluster and Airflow deployment
-- **`cleanup.sh`** - Complete cleanup (removes everything)
+#### Utility Scripts
+- **`check-prerequisites.sh`** - Verify required tools
+- **`setup-kind-cluster.sh`** - Create kind cluster
+- **`port-forward.sh`** - Set up port forwarding
+- **`status.sh`** - Check system status
+- **`generate-helm-templates.sh`** - Generate K8s templates from Helm
 
 ## Manual Setup Steps
 
@@ -139,6 +239,211 @@ users:
   - username: your_username
     password: your_password
     role: Admin
+```
+
+## Dog Breeds System
+
+### Overview
+
+The Dog Breeds System demonstrates a complete data pipeline:
+
+1. **Data Ingestion**: Airflow DAG fetches random dog breeds from [Dog API](https://dogapi.dog)
+2. **Data Storage**: Breeds stored in PostgreSQL database running in Kubernetes
+3. **Data API**: FastAPI backend provides REST API to query breeds
+4. **Data Visualization**: React dashboard displays breeds in real-time
+
+### Components
+
+#### 1. Database (PostgreSQL)
+- **Location**: `k8s/dog-breeds-db/`
+- **Namespace**: `dog-breeds`
+- **Service**: `dog-breeds-db.dog-breeds.svc.cluster.local:5432`
+- **External Access**: `localhost:30432` (NodePort)
+- **Schema**: See `database/schema.sql`
+
+**Features:**
+- UUID primary keys
+- JSONB for flexible data storage
+- Indexes for performance
+- Views for common queries
+- Triggers for automatic timestamps
+
+#### 2. API Backend (FastAPI)
+- **Location**: `api/`
+- **Namespace**: `dog-breeds`
+- **Service**: `dog-breeds-api.dog-breeds.svc.cluster.local:8000`
+- **External Access**: `http://localhost:30800` (NodePort)
+- **Documentation**: `http://localhost:30800/docs`
+
+**Endpoints:**
+- `GET /health` - Health check
+- `GET /api/breeds` - List breeds with pagination
+- `GET /api/breeds/recent` - Recent breeds (compatible with old API)
+- `GET /api/breeds/stats` - Statistics
+- `GET /api/breeds/{id}` - Get specific breed
+- `GET /api/breeds/search/{name}` - Search by name
+
+#### 3. Airflow DAG
+- **Location**: `dags/dog_breed_dag.py`
+- **Schedule**: Every hour
+- **Tasks**:
+  1. `fetch_dog_breed` - Fetch from API and store in database
+  2. `print_summary` - Print summary (XCom usage demo)
+
+**Database Connection:**
+The DAG uses environment variables to connect:
+- `DOG_BREEDS_DB_HOST`
+- `DOG_BREEDS_DB_PORT`
+- `DOG_BREEDS_DB_NAME`
+- `DOG_BREEDS_DB_USER`
+- `DOG_BREEDS_DB_PASSWORD`
+
+#### 4. React Dashboard
+- **Location**: `dashboard/`
+- **Port**: `5173` (Vite dev server)
+- **API Connection**: Configured via `VITE_DOG_BREEDS_API_URL`
+
+**Features:**
+- Real-time breed display
+- Auto-refresh every 30 seconds
+- Statistics dashboard
+- Responsive design with Tailwind CSS
+
+### Deployment
+
+#### Deploy Database
+```bash
+./scripts/deploy-dog-breeds-db.sh
+```
+
+This creates:
+- Namespace and ConfigMaps
+- PostgreSQL deployment with schema
+- PersistentVolumeClaim for data
+- Services (ClusterIP and NodePort)
+
+#### Deploy API
+```bash
+./scripts/deploy-dog-breeds-api.sh
+```
+
+This:
+- Builds Docker image from `api/`
+- Loads image into kind cluster
+- Deploys with 2 replicas
+- Creates services with health checks
+
+#### Configure Airflow
+```bash
+./scripts/setup-airflow-db-connection.sh
+```
+
+This creates ConfigMaps and Secrets in Airflow namespace. Then upgrade Airflow:
+
+```bash
+helm upgrade airflow apache-airflow/airflow -n airflow -f helm/values.yaml
+```
+
+Or deploy everything at once:
+
+```bash
+./scripts/deploy-all.sh
+```
+
+### Testing the System
+
+#### 1. Test Database Connection
+```bash
+# From host
+psql -h localhost -p 30432 -U airflow -d dog_breeds_db
+
+# List tables
+\dt
+
+# Query breeds
+SELECT breed_name, life_expectancy, execution_date 
+FROM dog_breeds 
+ORDER BY execution_date DESC 
+LIMIT 10;
+```
+
+#### 2. Test API
+```bash
+# Health check
+curl http://localhost:30800/health
+
+# Get recent breeds
+curl http://localhost:30800/api/breeds/recent?limit=5
+
+# Get statistics
+curl http://localhost:30800/api/breeds/stats
+
+# Open API docs
+open http://localhost:30800/docs
+```
+
+#### 3. Trigger DAG
+```bash
+# Via Airflow UI
+open http://localhost:8080
+# Login (admin/admin), navigate to DAGs, trigger dog_breed_fetcher
+
+# Via CLI
+kubectl exec -n airflow -it deployment/airflow-scheduler -- \
+  airflow dags trigger dog_breed_fetcher
+```
+
+#### 4. View Dashboard
+```bash
+cd dashboard
+npm install
+npm run dev
+open http://localhost:5173
+```
+
+### Development Workflow
+
+#### Update API Code
+```bash
+# Edit api/main.py
+vim api/main.py
+
+# Rebuild and redeploy
+./scripts/deploy-dog-breeds-api.sh
+
+# View logs
+kubectl logs -n dog-breeds -l component=api --tail=50 -f
+```
+
+#### Update DAG
+```bash
+# Edit dags/dog_breed_dag.py
+vim dags/dog_breed_dag.py
+
+# DAG is automatically reloaded by Airflow
+# Check in UI or logs:
+kubectl logs -n airflow -l component=scheduler --tail=50 -f
+```
+
+#### Update Dashboard
+```bash
+# Edit dashboard files
+cd dashboard
+# Changes hot-reload automatically with Vite
+```
+
+#### Update Database Schema
+```bash
+# Edit database/schema.sql
+vim database/schema.sql
+
+# Update schema in running database
+kubectl exec -n dog-breeds -it deployment/dog-breeds-db -- \
+  psql -U airflow -d dog_breeds_db -f /docker-entrypoint-initdb.d/01-schema.sql
+
+# Or recreate database deployment
+kubectl delete deployment dog-breeds-db -n dog-breeds
+./scripts/deploy-dog-breeds-db.sh
 ```
 
 ## Adding DAGs
@@ -249,10 +554,9 @@ To remove everything (Helm release, namespace, and kind cluster):
 
 ## Troubleshooting
 
-### Port 8080 Already in Use
+### Airflow Issues
 
-If port 8080 is already in use:
-
+#### Port 8080 Already in Use
 ```bash
 # Find the process using the port
 lsof -i :8080
@@ -262,44 +566,178 @@ kill -9 <PID>
 ```
 
 Or change the port in `scripts/port-forward.sh`:
-
 ```bash
 LOCAL_PORT=8081  # Change this
 ```
 
-### Pods Not Starting
-
-Check pod status and events:
-
+#### Pods Not Starting
 ```bash
 kubectl get pods -n airflow
 kubectl describe pod <pod-name> -n airflow
 kubectl get events -n airflow --sort-by='.lastTimestamp'
+kubectl logs -n airflow <pod-name>
 ```
 
-### Database Migration Issues
-
-If database migrations fail, you can manually run them:
-
+#### Database Migration Issues
 ```bash
 kubectl exec -n airflow -it deployment/airflow-scheduler -- airflow db upgrade
 ```
 
-### Kind Cluster Issues
-
-If the kind cluster has issues, delete and recreate:
-
+#### DAG Not Showing Up
 ```bash
-kind delete cluster --name airflow-cluster
-./scripts/setup-kind-cluster.sh
+# Check DAG processor logs
+kubectl logs -n airflow -l component=dag-processor --tail=100
+
+# Check for syntax errors
+kubectl exec -n airflow -it deployment/airflow-scheduler -- \
+  python /opt/airflow/dags/dog_breed_dag.py
 ```
 
-### Helm Chart Issues
+### Dog Breeds System Issues
 
-Update Helm repositories:
-
+#### Database Connection Failed
 ```bash
+# Check database pod status
+kubectl get pods -n dog-breeds -l component=database
+kubectl logs -n dog-breeds -l component=database --tail=50
+
+# Test connection from Airflow
+kubectl exec -n airflow -it deployment/airflow-scheduler -- \
+  bash -c "psql -h dog-breeds-db.dog-breeds.svc.cluster.local -U airflow -d dog_breeds_db -c 'SELECT 1'"
+
+# Check if ConfigMap exists
+kubectl get configmap dog-breeds-db-connection -n airflow
+kubectl get secret dog-breeds-db-connection -n airflow
+```
+
+#### API Not Responding
+```bash
+# Check API pods
+kubectl get pods -n dog-breeds -l component=api
+kubectl logs -n dog-breeds -l component=api --tail=50 -f
+
+# Test API health
+curl http://localhost:30800/health
+
+# Check if NodePort service is running
+kubectl get svc -n dog-breeds dog-breeds-api-nodeport
+```
+
+#### API Image Not Found
+```bash
+# Rebuild and load image
+cd api
+docker build -t dog-breeds-api:latest .
+kind load docker-image dog-breeds-api:latest --name airflow-cluster
+
+# Restart deployment
+kubectl rollout restart deployment/dog-breeds-api -n dog-breeds
+```
+
+#### DAG Fails to Store Data
+```bash
+# Check Airflow logs
+kubectl logs -n airflow -l component=scheduler --tail=100 | grep -i error
+
+# Verify environment variables are set
+kubectl exec -n airflow -it deployment/airflow-scheduler -- \
+  bash -c "env | grep DOG_BREEDS"
+
+# Test database connection from Airflow pod
+kubectl exec -n airflow -it deployment/airflow-scheduler -- \
+  bash -c "python -c 'import psycopg2; conn = psycopg2.connect(host=\"dog-breeds-db.dog-breeds.svc.cluster.local\", port=5432, database=\"dog_breeds_db\", user=\"airflow\", password=\"airflow\"); print(\"Connected!\")'"
+```
+
+#### Dashboard Shows No Data
+```bash
+# Check API is accessible
+curl http://localhost:30800/api/breeds/recent?limit=5
+
+# Check browser console for errors
+# Make sure VITE_DOG_BREEDS_API_URL is set correctly
+
+# Verify CORS is working
+curl -H "Origin: http://localhost:5173" \
+  -H "Access-Control-Request-Method: GET" \
+  -X OPTIONS http://localhost:30800/api/breeds/recent -v
+```
+
+### Kubernetes Issues
+
+#### Kind Cluster Issues
+```bash
+# Check cluster status
+kind get clusters
+
+# Delete and recreate cluster
+kind delete cluster --name airflow-cluster
+./scripts/setup-kind-cluster.sh
+
+# Check Docker resources
+docker system df
+```
+
+#### Persistent Volume Issues
+```bash
+# Check PVCs
+kubectl get pvc -n dog-breeds
+kubectl describe pvc dog-breeds-db-pvc -n dog-breeds
+
+# Check storage class
+kubectl get storageclass
+```
+
+#### Image Pull Issues
+```bash
+# Verify image is loaded in kind
+docker exec -it airflow-cluster-control-plane crictl images | grep dog-breeds
+
+# Reload image
+kind load docker-image dog-breeds-api:latest --name airflow-cluster
+```
+
+### Helm Issues
+
+#### Helm Chart Update Failed
+```bash
+# Update Helm repositories
 helm repo update apache-airflow
+
+# Check current values
+helm get values airflow -n airflow
+
+# Dry-run upgrade
+helm upgrade airflow apache-airflow/airflow -n airflow -f helm/values.yaml --dry-run
+```
+
+### Network Issues
+
+#### Services Not Reachable
+```bash
+# Check services
+kubectl get svc -A
+
+# Test DNS resolution
+kubectl run -it --rm debug --image=busybox --restart=Never -- \
+  nslookup dog-breeds-db.dog-breeds.svc.cluster.local
+
+# Check endpoints
+kubectl get endpoints -n dog-breeds
+```
+
+### Complete Reset
+
+If all else fails:
+```bash
+# Clean everything
+./scripts/cleanup.sh
+
+# Wait a moment
+sleep 10
+
+# Start fresh
+./scripts/start-airflow.sh
+./scripts/deploy-all.sh
 ```
 
 ## Architecture

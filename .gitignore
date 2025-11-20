@@ -1,9 +1,3 @@
-# Airflow
-airflow/
-*.db
-*.log
-*.pid
-
 # Python
 __pycache__/
 *.py[cod]
@@ -12,7 +6,6 @@ __pycache__/
 .Python
 env/
 venv/
-.venv/
 ENV/
 build/
 develop-eggs/
@@ -30,23 +23,48 @@ wheels/
 .installed.cfg
 *.egg
 
-# IDE
-.vscode/
+# Airflow
+airflow/logs/
+airflow/airflow.db
+airflow/airflow.cfg
+airflow/unittests.cfg
+airflow/webserver_config.py
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# Node.js
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
+*.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+dashboard/.env
+dashboard/.env.local
+
+# IDEs
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
 .DS_Store
 
 # Kubernetes
-.kube/
-kind-config.yaml
+k8s/airflow/
 *.kubeconfig
 
-# Helm
-.helm/
-charts/
-*.tgz
+# Database
+*.db
+*.sqlite
+*.sqlite3
+database/migrations/
+
+# Docker
+.dockerignore
 
 # Logs
 logs/
@@ -57,11 +75,6 @@ tmp/
 temp/
 *.tmp
 
-# Environment variables
-.env
-.env.local
-
-# Local development
-local/
-local_*
-
+# Generated files
+generated/
+output/

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getRecentBreeds, getBreedSummary } from '../api';
+import { getRecentBreeds, getBreedSummary, checkHealth } from '../api';
 import { BreedCard } from './BreedCard';
 import type { DogBreed } from '../types';
 
@@ -13,10 +13,20 @@ export function BreedDashboard() {
     try {
       setError(null);
       const data = await getRecentBreeds('dog_breed_fetcher', 20);
-      setBreeds(data);
+      setBreeds(data || []);
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch dog breeds');
+      const errorMessage = err.message || err.response?.data?.detail || 'Failed to fetch dog breeds';
+      setError(errorMessage);
       console.error('Error fetching breeds:', err);
+      
+      // Log more details in development
+      if (import.meta.env.DEV) {
+        console.error('Error details:', {
+          message: err.message,
+          response: err.response,
+          stack: err.stack,
+        });
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -24,7 +34,20 @@ export function BreedDashboard() {
   };
 
   useEffect(() => {
+    // Check API health first
+    const checkApiHealth = async () => {
+      try {
+        await checkHealth();
+        console.log('API health check passed');
+      } catch (err) {
+        console.warn('API health check failed:', err);
+        setError('API is not accessible. Make sure the API is running and port forwarding is active.');
+      }
+    };
+
+    checkApiHealth();
     fetchBreeds();
+    
     // Refresh every 30 seconds
     const interval = setInterval(() => {
       setRefreshing(true);
@@ -55,8 +78,14 @@ export function BreedDashboard() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center max-w-md">
           <div className="bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
-            <p className="font-bold">Error</p>
-            <p>{error}</p>
+            <p className="font-bold">Error Loading Dog Breeds</p>
+            <p className="text-sm mt-2">{error}</p>
+            <p className="text-xs mt-2 text-gray-600 dark:text-gray-400">
+              Make sure:
+              <br />• The API is running (http://localhost:30800)
+              <br />• Port forwarding is active
+              <br />• The database has been populated by running the DAG
+            </p>
           </div>
           <button
             onClick={handleRefresh}

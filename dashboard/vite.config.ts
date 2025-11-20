@@ -6,13 +6,8 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-        secure: false,
-        // Vite proxy forwards all headers (including Authorization) by default
-      },
-    },
+    port: 5173,
+    // No proxy needed - Dog Breeds API has CORS enabled
+    // API is accessed via VITE_DOG_BREEDS_API_URL env variable
   },
 })

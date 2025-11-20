@@ -1,125 +1,84 @@
-// Use relative path in development (proxied by Vite) or full URL from env
-const AIRFLOW_API_URL = import.meta.env.VITE_AIRFLOW_API_URL || '/api/v2';
+// Use Dog Breeds API (FastAPI backend connected to PostgreSQL)
+const DOG_BREEDS_API_URL = import.meta.env.VITE_DOG_BREEDS_API_URL || 'http://localhost:30800';
 
-// Get credentials
-const username = import.meta.env.VITE_AIRFLOW_USERNAME || 'admin';
-const password = import.meta.env.VITE_AIRFLOW_PASSWORD || 'admin';
-
-// Create Basic Auth header manually to ensure it works through proxy
-const authHeader = `Basic ${btoa(`${username}:${password}`)}`;
-
-// Helper function to make authenticated fetch requests
+// Helper function to make API fetch requests
 async function apiFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
-  const url = `${AIRFLOW_API_URL}${endpoint}`;
+  const url = `${DOG_BREEDS_API_URL}${endpoint}`;
   
-  // Merge headers properly - ensure Authorization is always set
+  // Set headers
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
-  headers.set('Authorization', authHeader);
+  headers.set('Accept', 'application/json');
   
-  // Debug: verify auth header is set (remove in production)
+  // Debug: log request in development
   if (import.meta.env.DEV) {
-    console.log('API Request:', url, 'Auth header set:', !!headers.get('Authorization'));
+    console.log('API Request:', url);
   }
   
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = new Error(`Request failed with status code ${response.status}`);
-    (error as any).response = {
-      status: response.status,
-      statusText: response.statusText,
-      data: await response.json().catch(() => null),
-    };
-    throw error;
-  }
-
-  return response;
-}
-
-export interface XComValue {
-  value: any;
-  timestamp: string;
-}
-
-export interface TaskInstance {
-  dag_id: string;
-  task_id: string;
-  run_id: string;
-  state: string;
-}
-
-/**
- * Get the latest DAG run for a specific DAG
- */
-export async function getLatestDagRun(dagId: string): Promise<any> {
   try {
-    const params = new URLSearchParams({
-      limit: '1',
-      order_by: '-start_date',
+    const response = await fetch(url, {
+      ...options,
+      headers,
     });
-    const response = await apiFetch(`/dags/${dagId}/dagRuns?${params}`);
-    const data = await response.json();
-    return data.dag_runs?.[0] || null;
-  } catch (error) {
-    console.error('Error fetching DAG run:', error);
+
+    if (!response.ok) {
+      // Try to get error details from response
+      let errorData = null;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { detail: response.statusText || `HTTP ${response.status}` };
+      }
+      
+      const error = new Error(errorData.detail || `Request failed with status code ${response.status}`);
+      (error as any).response = {
+        status: response.status,
+        statusText: response.statusText,
+        data: errorData,
+      };
+      throw error;
+    }
+
+    return response;
+  } catch (error: any) {
+    // Handle network errors
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error('Network error: Unable to connect to API. Make sure the API is running and port forwarding is active.');
+    }
     throw error;
   }
 }
 
-/**
- * Get XCom value from a task instance
- */
-export async function getXComValue(
-  dagId: string,
-  runId: string,
-  taskId: string,
-  key: string = 'return_value'
-): Promise<any> {
-  try {
-    const response = await apiFetch(
-      `/dags/${dagId}/dagRuns/${runId}/taskInstances/${taskId}/xcomEntries/${key}`
-    );
-    const data = await response.json();
-    return data.value;
-  } catch (error) {
-    console.error('Error fetching XCom value:', error);
-    throw error;
-  }
+export interface DogBreed {
+  id: string;
+  breed_name: string;
+  description?: string;
+  life_expectancy?: string;
+  life_span?: string;
+  dag_id: string;
+  dag_run_id: string;
+  run_id?: string;
+  task_id: string;
+  execution_date: string;
+  start_date?: string;
+  created_at: string;
+  state?: string;
+}
+
+export interface BreedStats {
+  total_breeds: number;
+  unique_breeds: number;
+  latest_execution?: string;
 }
 
 /**
- * Get breed summary from the print_summary task XCom
+ * Get breed summary from the database
  */
 export async function getBreedSummary(dagId: string = 'dog_breed_fetcher'): Promise<any> {
   try {
-    const dagRun = await getLatestDagRun(dagId);
-    if (!dagRun) {
-      throw new Error('No DAG run found');
-    }
-
-    // Try to get breed_summary from print_summary task
-    try {
-      const breedSummary = await getXComValue(
-        dagId,
-        dagRun.dag_run_id,
-        'print_summary',
-        'breed_summary'
-      );
-      return breedSummary;
-    } catch (e) {
-      // Fallback: get return_value from fetch_dog_breed task
-      const breedData = await getXComValue(
-        dagId,
-        dagRun.dag_run_id,
-        'fetch_dog_breed',
-        'return_value'
-      );
-      return breedData;
-    }
+    const response = await apiFetch(`/api/breeds/recent?limit=1&dag_id=${dagId}`);
+    const data = await response.json();
+    return data[0] || null;
   } catch (error) {
     console.error('Error fetching breed summary:', error);
     throw error;
@@ -127,66 +86,84 @@ export async function getBreedSummary(dagId: string = 'dog_breed_fetcher'): Prom
 }
 
 /**
- * Get all recent breed data from multiple DAG runs
+ * Get all recent breed data from the database
  */
-export async function getRecentBreeds(dagId: string = 'dog_breed_fetcher', limit: number = 10): Promise<any[]> {
+export async function getRecentBreeds(dagId: string = 'dog_breed_fetcher', limit: number = 10): Promise<DogBreed[]> {
   try {
-    const params = new URLSearchParams({
-      limit: limit.toString(),
-      order_by: '-start_date',
-    });
-    const response = await apiFetch(`/dags/${dagId}/dagRuns?${params}`);
-    const data = await response.json();
-
-    const dagRuns = data.dag_runs || [];
-    const breeds: any[] = [];
-
-    for (const run of dagRuns) {
-      try {
-        // Try print_summary first
-        const breedSummary = await getXComValue(
-          dagId,
-          run.dag_run_id,
-          'print_summary',
-          'breed_summary'
-        );
-        if (breedSummary) {
-          breeds.push({
-            ...breedSummary,
-            run_id: run.dag_run_id,
-            start_date: run.start_date,
-            state: run.state,
-          });
-        }
-      } catch (e) {
-        // Try fetch_dog_breed as fallback
-        try {
-          const breedData = await getXComValue(
-            dagId,
-            run.dag_run_id,
-            'fetch_dog_breed',
-            'return_value'
-          );
-          if (breedData) {
-            breeds.push({
-              breed_name: breedData.breed_name,
-              life_span: breedData.life_expectancy || breedData.life_span,
-              description: breedData.description,
-              run_id: run.dag_run_id,
-              start_date: run.start_date,
-              state: run.state,
-            });
-          }
-        } catch (err) {
-          // Skip this run if we can't get data
-          console.warn(`Could not fetch breed data for run ${run.dag_run_id}`);
-        }
-      }
+    // URL encode the dag_id parameter to handle special characters
+    const encodedDagId = encodeURIComponent(dagId);
+    const response = await apiFetch(`/api/breeds/recent?limit=${limit}&dag_id=${encodedDagId}`);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(errorData.detail || `Request failed with status ${response.status}`);
     }
-
-    return breeds;
-  } catch (error) {
+    
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error: any) {
     console.error('Error fetching recent breeds:', error);
+    // Provide more helpful error messages
+    if (error.message) {
+      throw new Error(`Failed to fetch breeds: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get breed statistics from the database
+ */
+export async function getBreedStats(dagId?: string): Promise<BreedStats> {
+  try {
+    const url = dagId ? `/api/breeds/stats?dag_id=${dagId}` : '/api/breeds/stats';
+    const response = await apiFetch(url);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching breed stats:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a specific breed by ID
+ */
+export async function getBreedById(breedId: string): Promise<DogBreed> {
+  try {
+    const response = await apiFetch(`/api/breeds/${breedId}`);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching breed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Search breeds by name
+ */
+export async function searchBreeds(breedName: string, limit: number = 10): Promise<DogBreed[]> {
+  try {
+    const response = await apiFetch(`/api/breeds/search/${encodeURIComponent(breedName)}?limit=${limit}`);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error searching breeds:', error);
+    throw error;
+        }
+}
+
+/**
+ * Check API health
+ */
+export async function checkHealth(): Promise<any> {
+  try {
+    const response = await apiFetch('/health');
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error checking health:', error);
     throw error;
   }
 }

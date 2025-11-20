@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dog-breeds-api
+  namespace: dog-breeds
+  labels:
+    app: dog-breeds
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: dog-breeds
+    component: api
+---
+# NodePort service for external access (development only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: dog-breeds-api-nodeport
+  namespace: dog-breeds
+  labels:
+    app: dog-breeds
+    component: api
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    nodePort: 30800  # Access via localhost:30800 on kind
+    protocol: TCP
+  selector:
+    app: dog-breeds
+    component: api
+
