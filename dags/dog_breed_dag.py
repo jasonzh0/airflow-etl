@@ -166,12 +166,25 @@ def fetch_random_dog_breed(**context):
                 logger.info(f"Execution date: {execution_date}")
                 logger.info(f"DAG ID: {ti.dag_id}, Task ID: {ti.task_id}")
                 
+                # Generate asset URI before insert
+                asset_uri = f"dog_breed://{ti.dag_id}/{dag_run.run_id}"
+                
+                # Prepare full_data with asset information
+                full_data_with_asset = random_breed.copy() if isinstance(random_breed, dict) else {}
+                full_data_with_asset['asset_uri'] = asset_uri
+                full_data_with_asset['airflow_metadata'] = {
+                    'dag_id': ti.dag_id,
+                    'dag_run_id': dag_run.run_id,
+                    'task_id': ti.task_id,
+                    'execution_date': execution_date.isoformat() if hasattr(execution_date, 'isoformat') else str(execution_date)
+                }
+                
                 insert_query = """
                     INSERT INTO dog_breeds (
                         breed_name, description, life_expectancy, life_min, life_max,
-                        dag_id, dag_run_id, task_id, execution_date, full_data
+                        dag_id, dag_run_id, task_id, execution_date, asset_uri, full_data
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (dag_run_id, breed_name) 
                     DO UPDATE SET
@@ -179,6 +192,7 @@ def fetch_random_dog_breed(**context):
                         life_expectancy = EXCLUDED.life_expectancy,
                         life_min = EXCLUDED.life_min,
                         life_max = EXCLUDED.life_max,
+                        asset_uri = EXCLUDED.asset_uri,
                         full_data = EXCLUDED.full_data,
                         updated_at = CURRENT_TIMESTAMP
                     RETURNING id;
@@ -201,7 +215,8 @@ def fetch_random_dog_breed(**context):
                     dag_run.run_id,
                     ti.task_id,
                     execution_date,
-                    json.dumps(random_breed)
+                    asset_uri,
+                    json.dumps(full_data_with_asset)
                 ))
                 
                 breed_id = cursor.fetchone()[0]
@@ -210,8 +225,21 @@ def fetch_random_dog_breed(**context):
                 logger.info("=" * 80)
                 logger.info(f"✅ SUCCESSFULLY STORED BREED IN DATABASE!")
                 logger.info(f"   Breed ID: {breed_id}")
+                logger.info(f"   Asset URI: {asset_uri}")
                 logger.info(f"   Database: {DB_CONFIG['host']}/{DB_CONFIG['database']}")
+                logger.info(f"   Table: dog_breeds")
                 logger.info("=" * 80)
+                
+                # Store breed_id and asset info in result for asset event
+                result['breed_id'] = str(breed_id)
+                result['asset_uri'] = asset_uri
+                result['database_record_id'] = str(breed_id)
+                result['database_connection'] = {
+                    'host': DB_CONFIG['host'],
+                    'database': DB_CONFIG['database'],
+                    'table': 'dog_breeds',
+                    'record_id': str(breed_id)
+                }
                 
                 cursor.close()
                 conn.close()
@@ -228,12 +256,19 @@ def fetch_random_dog_breed(**context):
             # Log the full breed data (can be viewed in Airflow UI)
             logger.debug(f"Full breed data:\n{json.dumps(random_breed, indent=2)}")
             
-            # Update asset with breed data
-            logger.info(f"💾 Asset will be stored: dog_breed://random_breed")
-            logger.info(f"   Breed: {breed_name}")
-            logger.info(f"   Life Expectancy: {result['life_expectancy']}")
+            # Log asset information
+            if 'asset_uri' in result:
+                logger.info(f"💾 Asset connected to database: {result['asset_uri']}")
+                logger.info(f"   Database Record ID: {result.get('breed_id', 'N/A')}")
+                logger.info(f"   Breed: {breed_name}")
+                logger.info(f"   Life Expectancy: {result['life_expectancy']}")
+            else:
+                logger.info(f"💾 Asset will be stored: dog_breed://random_breed")
+                logger.info(f"   Breed: {breed_name}")
+                logger.info(f"   Life Expectancy: {result['life_expectancy']}")
             
             # Store result in XCom for downstream tasks if needed
+            # Include database connection info for asset tracking
             return result
         else:
             logger.warning("No breeds found in API response")
@@ -306,11 +341,27 @@ def print_breed_summary(**context):
         logger.error("=" * 60)
 
 # Define the asset that will be produced
+# The asset URI will be dynamically set per DAG run to include dag_id and run_id
+# This connects the asset to the specific database record
 dog_breed_asset = Asset(
-    uri=f"dog_breed://random_breed",
+    uri=f"dog_breed://dog_breed_fetcher",  # Base URI, will be extended per run
     extra={
-        'description': 'Random dog breed fetched from Dog API',
+        'description': 'Random dog breed fetched from Dog API and stored in PostgreSQL database',
         'source': 'https://dogapi.dog/api/v2/breeds',
+        'database': {
+            'host': DB_CONFIG.get('host', 'dog-breeds-db.dog-breeds.svc.cluster.local'),
+            'port': DB_CONFIG.get('port', '5432'),
+            'database': DB_CONFIG.get('database', 'dog_breeds_db'),
+            'table': 'dog_breeds',
+            'schema': 'public',
+            'connection_string': f"postgresql://{DB_CONFIG.get('user', 'airflow')}@{DB_CONFIG.get('host', 'dog-breeds-db.dog-breeds.svc.cluster.local')}:{DB_CONFIG.get('port', '5432')}/{DB_CONFIG.get('database', 'dog_breeds_db')}"
+        },
+        'metadata': {
+            'storage_type': 'postgresql',
+            'primary_key': 'id',
+            'asset_column': 'asset_uri',
+            'linked_fields': ['dag_id', 'dag_run_id', 'execution_date']
+        }
     }
 )
 

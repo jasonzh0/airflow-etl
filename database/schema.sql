@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS dog_breeds (
     task_id VARCHAR(255) NOT NULL,
     execution_date TIMESTAMP WITH TIME ZONE NOT NULL,
     
-    -- API response metadata
+    -- Asset metadata (linked to Airflow asset)
+    asset_uri VARCHAR(500),
+    
+    -- API response metadata (includes full_data and asset_uri in JSONB)
     full_data JSONB,
     
     -- Timestamps
@@ -41,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_dog_breeds_dag_id ON dog_breeds(dag_id);
 CREATE INDEX IF NOT EXISTS idx_dog_breeds_execution_date ON dog_breeds(execution_date DESC);
 CREATE INDEX IF NOT EXISTS idx_dog_breeds_breed_name ON dog_breeds(breed_name);
 CREATE INDEX IF NOT EXISTS idx_dog_breeds_created_at ON dog_breeds(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dog_breeds_asset_uri ON dog_breeds(asset_uri) WHERE asset_uri IS NOT NULL;
 
 -- Create a view for easy querying
 CREATE OR REPLACE VIEW recent_breeds AS
