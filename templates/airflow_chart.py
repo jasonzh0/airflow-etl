@@ -39,12 +39,31 @@ class AirflowChart(HelmChart):
             "defaultAirflowRepository": "apache/airflow",
             "defaultAirflowTag": "3.1.3",
             "executor": "LocalExecutor",
+            "migrateDatabaseJob": {
+                "enabled": False,
+            },
+            "data": {
+                "metadataConnection": {
+                    "user": "airflow",
+                    "pass": "airflow",
+                    "protocol": "postgresql",
+                    "host": "airflow-postgresql",
+                    "port": 5432,
+                    "db": "airflow",
+                },
+            },
             "postgresql": {
                 "enabled": True,
                 "image": {
                     "registry": "docker.io",
                     "repository": "postgres",
                     "tag": "16-alpine",
+                },
+                "primary": {
+                    "persistence": {
+                        "enabled": True,
+                        "size": "8Gi",
+                    },
                 },
                 "auth": {
                     "username": "airflow",
