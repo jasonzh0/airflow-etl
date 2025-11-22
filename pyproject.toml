@@ -1,0 +1,17 @@
+[project]
+name = "airflow-k8s"
+version = "0.1.0"
+description = "Airflow Kubernetes deployment with kubeman"
+requires-python = ">=3.10"
+dependencies = [
+    "kubeman>=0.3.0",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
+

@@ -57,6 +57,9 @@ dashboard/.env.local
 k8s/airflow/
 *.kubeconfig
 
+# Generated manifests from kubeman
+manifests/
+
 # Database
 *.db
 *.sqlite
