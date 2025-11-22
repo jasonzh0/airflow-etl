@@ -42,9 +42,7 @@ class AirflowChart(HelmChart):
             "postgresql": {
                 "enabled": True,
                 "image": {
-                    "registry": "docker.io",
-                    "repository": "postgres",
-                    "tag": "16-alpine",
+                    "tag": "latest",
                 },
                 "auth": {
                     "username": "airflow",
