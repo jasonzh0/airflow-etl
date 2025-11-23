@@ -28,19 +28,25 @@ Before getting started, ensure you have the following tools installed:
   - Install: `brew install kind` (macOS) or [kind installation guide](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
 - **Helm 3.10+** - Kubernetes package manager
   - Install: `brew install helm` (macOS) or [Helm installation guide](https://helm.sh/docs/intro/install/)
+- **Python 3.10+** - For kubeman template management
+  - Install: [Python downloads](https://www.python.org/downloads/)
+- **uv** - Fast Python package installer
+  - Install: `pip install uv` or `brew install uv` (macOS)
 
 ## Quick Start
 
-### Option 1: Complete System (Airflow + Dog Breeds)
+### Complete System Deployment
+
+Deploy the entire system (Airflow + Dog Breeds Database + API) with a single command:
 
 ```bash
 # 1. Check prerequisites
 ./scripts/check-prerequisites.sh
 
-# 2. Deploy Airflow
-./scripts/start-airflow.sh
+# 2. Setup kind cluster
+./scripts/setup-kind-cluster.sh
 
-# 3. Deploy Dog Breeds System (Database + API)
+# 3. Deploy everything
 ./scripts/deploy-all.sh
 
 # 4. Start Dashboard
@@ -49,6 +55,8 @@ npm install
 npm run dev
 ```
 
+> **Note:** The deployment script uses `kubeman` for Kubernetes template management and handles database migrations automatically.
+
 **Access Points:**
 - **Airflow UI**: http://localhost:8080 (admin/admin)
 - **Dog Breeds API**: http://localhost:30800
@@ -56,24 +64,17 @@ npm run dev
 - **Dashboard**: http://localhost:5173
 - **Database**: localhost:30432
 
-### Option 2: Airflow Only
-
-```bash
-# 1. Check prerequisites
-./scripts/check-prerequisites.sh
-
-# 2. Start Airflow (all-in-one)
-./scripts/start-airflow.sh
-
-# 3. Access Airflow UI
-open http://localhost:8080
-```
-
-**Default credentials:**
+**Default Airflow credentials:**
 - Username: `admin`
 - Password: `admin`
 
-> **Note:** You can change the default credentials in `helm/values.yaml` before deployment.
+**Deployment Time:** Initial deployment takes 5-10 minutes as it:
+- Creates kind cluster
+- Pulls container images
+- Deploys PostgreSQL databases
+- Runs Airflow database migrations
+- Builds and loads custom API image
+- Waits for all pods to be ready
 
 ## Project Structure
 
@@ -89,20 +90,21 @@ airflow/
 │   ├── main.py               # FastAPI application
 │   ├── Dockerfile            # API container image
 │   └── requirements.txt      # Python dependencies
-├── k8s/                       # Kubernetes manifests
-│   ├── dog-breeds-db/        # PostgreSQL database
-│   ├── dog-breeds-api/       # FastAPI backend
-│   └── airflow/              # Generated Airflow templates (optional)
-├── helm/                      # Helm values
-│   └── values.yaml           # Airflow Helm configuration
+├── templates/                  # Kubernetes templates (kubeman)
+│   ├── airflow_chart.py      # Airflow Helm chart definition
+│   ├── dog_breeds_db_chart.py    # Database resources
+│   └── dog_breeds_api_chart.py   # API resources
+├── manifests/                  # Generated Kubernetes manifests
+│   ├── airflow/              # Generated Airflow manifests
+│   ├── dog-breeds-db/        # Generated database manifests
+│   └── dog-breeds-api/       # Generated API manifests
 ├── scripts/                   # Deployment scripts
-│   ├── start-airflow.sh      # Quick start Airflow
-│   ├── deploy-all.sh         # Deploy complete system
-│   ├── deploy-dog-breeds-db.sh   # Deploy database
-│   ├── deploy-dog-breeds-api.sh  # Deploy API
-│   └── ...                   # Other management scripts
-└── database/                  # Database schema
-    └── schema.sql            # PostgreSQL schema
+│   ├── deploy-all.sh         # Deploy complete system (main script)
+│   └── ...                   # Other utility scripts
+├── database/                  # Database schema
+│   └── schema.sql            # PostgreSQL schema
+├── pyproject.toml             # Python dependencies (kubeman)
+└── render.py                  # Template registration for kubeman CLI
 ```
 
 ## System Architecture
@@ -153,96 +155,122 @@ airflow/
 6. **Database** accessible for direct queries and debugging
 7. **Asset Lineage** tracks data from Airflow assets to database records
 
-## Scripts Overview
+## Deployment Architecture
 
-The project includes several helper scripts in the `scripts/` directory. See [`scripts/README.md`](scripts/README.md) for detailed documentation.
+This project uses **kubeman v0.3.0** for Kubernetes template management, providing:
+- Python-based template definitions (easier than YAML)
+- Automatic manifest generation
+- Helm chart integration
+- Consistent deployment patterns
 
-### Quick Reference
+### Main Deployment Script
 
-#### Airflow Scripts
-- **`start-airflow.sh`** - Complete Airflow setup
-- **`deploy-airflow.sh`** - Deploy/upgrade Airflow
-- **`stop-airflow.sh`** - Stop Airflow with options
-- **`cleanup.sh`** - Remove everything
+**`scripts/deploy-all.sh`** - Comprehensive deployment script that:
+1. Checks prerequisites (kubectl, helm, docker, uv, kind cluster)
+2. Sets up Python virtual environment with kubeman
+3. Renders Kubernetes manifests from templates
+4. Deploys Airflow via Helm with PostgreSQL
+5. Runs Airflow database migrations
+6. Deploys Dog Breeds PostgreSQL database
+7. Builds and deploys FastAPI backend
+8. Configures Airflow database connections
 
-#### Dog Breeds System Scripts
-- **`deploy-all.sh`** - Deploy database + API + configure Airflow
-- **`deploy-dog-breeds-db.sh`** - Deploy PostgreSQL database
-- **`deploy-dog-breeds-api.sh`** - Build and deploy FastAPI
-- **`setup-airflow-db-connection.sh`** - Configure Airflow connection
-
-#### Utility Scripts
+### Utility Scripts
 - **`check-prerequisites.sh`** - Verify required tools
-- **`setup-kind-cluster.sh`** - Create kind cluster
-- **`port-forward.sh`** - Set up port forwarding
+- **`setup-kind-cluster.sh`** - Create kind cluster with proper configuration
+- **`port-forward.sh`** - Set up port forwarding for Airflow UI
 - **`status.sh`** - Check system status
-- **`generate-helm-templates.sh`** - Generate K8s templates from Helm
+- **`cleanup.sh`** - Remove everything (complete teardown)
 
-## Manual Setup Steps
+For detailed documentation, see [`scripts/README.md`](scripts/README.md).
 
-If you prefer to run steps manually:
+## Kubeman Template Management
 
-### 1. Check Prerequisites
+This project uses **kubeman v0.3.0** for managing Kubernetes resources through Python code instead of raw YAML.
+
+### Template Structure
+
+Templates are defined in the `templates/` directory:
+
+- **`airflow_chart.py`** - Airflow Helm chart with embedded values
+- **`dog_breeds_db_chart.py`** - PostgreSQL database resources
+- **`dog_breeds_api_chart.py`** - FastAPI backend resources
+
+### Rendering Manifests
+
+Manifests are automatically generated during deployment, but you can render them manually:
 
 ```bash
-./scripts/check-prerequisites.sh
+# Setup Python environment
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+
+# Render all templates
+python -m kubeman render --file render.py
+
+# View generated manifests
+ls -R manifests/
 ```
 
-### 2. Create Kind Cluster
+### Applying Manifests
+
+The `kubeman` CLI can also apply manifests directly:
 
 ```bash
-./scripts/setup-kind-cluster.sh
-```
+# Apply specific namespace resources
+python -m kubeman apply --file render.py --namespace dog-breeds
 
-### 3. Deploy Airflow
-
-```bash
-./scripts/deploy-airflow.sh
-```
-
-### 4. Set Up Port Forwarding
-
-```bash
-./scripts/port-forward.sh
+# This is handled automatically by deploy-all.sh
 ```
 
 ## Configuration
 
-### Helm Values
+### Airflow Configuration
 
-Airflow configuration is managed through `helm/values.yaml`. Key settings include:
+Airflow configuration is managed through `templates/airflow_chart.py`. The `generate_values()` method returns Helm values including:
 
-- **Airflow Version**: 3.1.3 (configurable)
-- **Executor**: LocalExecutor (can be changed to CeleryExecutor or KubernetesExecutor)
-- **Database**: PostgreSQL (managed by Helm chart)
+- **Airflow Version**: 3.1.3
+- **Executor**: LocalExecutor
+- **Database**: PostgreSQL (bitnami/postgresql:latest)
 - **Resources**: Configured for local development
+- **Default User**: admin/admin
 
-To customize Airflow settings, edit `helm/values.yaml` before deployment.
+To customize Airflow settings, edit `templates/airflow_chart.py` and redeploy:
+
+```python
+def generate_values(self) -> dict:
+    return {
+        "airflowVersion": "3.1.3",
+        "executor": "LocalExecutor",
+        # ... other settings
+    }
+```
 
 ### Changing Executor
 
-To use a different executor, modify `helm/values.yaml`:
+To use a different executor, modify `templates/airflow_chart.py`:
 
-```yaml
-executor: "CeleryExecutor"  # or "KubernetesExecutor"
-```
-
-For CeleryExecutor, also enable Redis:
-
-```yaml
-redis:
-  enabled: true
+```python
+def generate_values(self) -> dict:
+    return {
+        "executor": "CeleryExecutor",  # or "KubernetesExecutor"
+        # ... other settings
+    }
 ```
 
 ### Changing Default Credentials
 
-Edit `helm/values.yaml`:
+Edit the `webserver.defaultUser` section in `templates/airflow_chart.py`:
 
-```yaml
-users:
-  - username: your_username
-    password: your_password
-    role: Admin
+```python
+"webserver": {
+    "defaultUser": {
+        "username": "your_username",
+        "password": "your_password",
+        # ... other fields
+    },
+}
 ```
 
 ## Dog Breeds System
@@ -322,44 +350,29 @@ The DAG uses environment variables to connect:
 
 ### Deployment
 
-#### Deploy Database
-```bash
-./scripts/deploy-dog-breeds-db.sh
-```
-
-This creates:
-- Namespace and ConfigMaps
-- PostgreSQL deployment with schema
-- PersistentVolumeClaim for data
-- Services (ClusterIP and NodePort)
-
-#### Deploy API
-```bash
-./scripts/deploy-dog-breeds-api.sh
-```
-
-This:
-- Builds Docker image from `api/`
-- Loads image into kind cluster
-- Deploys with 2 replicas
-- Creates services with health checks
-
-#### Configure Airflow
-```bash
-./scripts/setup-airflow-db-connection.sh
-```
-
-This creates ConfigMaps and Secrets in Airflow namespace. Then upgrade Airflow:
-
-```bash
-helm upgrade airflow apache-airflow/airflow -n airflow -f helm/values.yaml
-```
-
-Or deploy everything at once:
+The recommended approach is to use the unified deployment script:
 
 ```bash
 ./scripts/deploy-all.sh
 ```
+
+This single script handles:
+- ✅ Environment setup (Python venv, kubeman installation)
+- ✅ Manifest rendering from templates
+- ✅ Airflow Helm deployment with PostgreSQL
+- ✅ Database migration (manual, due to Airflow 3.1.3 bug)
+- ✅ Dog Breeds PostgreSQL database
+- ✅ FastAPI backend (build, load, deploy)
+- ✅ Airflow connection configuration
+
+**Deployment Process:**
+1. Prerequisites check
+2. Python environment setup with `uv`
+3. Template rendering with `kubeman`
+4. Helm chart deployment
+5. Manual migration run (workaround for Airflow bug)
+6. Database and API deployment
+7. Connection configuration
 
 ### Testing the System
 
@@ -571,6 +584,31 @@ To remove everything (Helm release, namespace, and kind cluster):
 
 **Warning:** This will delete all data and cannot be undone.
 
+## Known Issues
+
+### Airflow 3.1.3 Migration Check Bug
+
+**Issue:** The `wait-for-airflow-migrations` init container may fail with:
+```
+TimeoutError: There are still unapplied migrations after 60 seconds. 
+MigrationHead(s) in DB: {'cc92b33c6709'} | Migration Head(s) in Source Code: {'cc92b33c6709'}
+```
+
+**Cause:** This is a bug in Airflow 3.1.3's `check-migrations` command. Even when migration heads match perfectly, the check incorrectly reports unapplied migrations.
+
+**Workaround:** The `deploy-all.sh` script automatically:
+1. Disables the Helm chart's built-in migration job
+2. Runs migrations manually using a temporary pod
+3. Restarts failed pods after migrations complete
+
+**Status:** Pods will initially show `Init:CrashLoopBackOff` but should recover after manual migration. If pods continue failing after 5 minutes, check logs:
+
+```bash
+kubectl logs -n airflow -l component=scheduler -c wait-for-airflow-migrations --tail=20
+```
+
+The database is healthy if you see matching migration heads in the error message.
+
 ## Troubleshooting
 
 ### Airflow Issues
@@ -598,8 +636,29 @@ kubectl logs -n airflow <pod-name>
 ```
 
 #### Database Migration Issues
+
+Due to the Airflow 3.1.3 bug, migrations must be run manually:
+
 ```bash
-kubectl exec -n airflow -it deployment/airflow-scheduler -- airflow db upgrade
+# Run migration in a temporary pod
+kubectl run -n airflow airflow-migrations \
+  --restart=Never \
+  --image=apache/airflow:3.1.3 \
+  --env="AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-postgresql.airflow:5432/airflow" \
+  -- airflow db migrate
+
+# Wait for completion
+sleep 20
+
+# Check logs
+kubectl logs -n airflow airflow-migrations
+
+# Verify migration status
+kubectl exec -n airflow airflow-postgresql-0 -- \
+  psql -U airflow -d airflow -c "SELECT * FROM alembic_version;"
+
+# Clean up
+kubectl delete pod -n airflow airflow-migrations
 ```
 
 #### DAG Not Showing Up
@@ -715,6 +774,36 @@ docker exec -it airflow-cluster-control-plane crictl images | grep dog-breeds
 kind load docker-image dog-breeds-api:latest --name airflow-cluster
 ```
 
+### Kubeman Issues
+
+#### Template Rendering Failed
+```bash
+# Check Python environment
+source .venv/bin/activate
+python -c "import kubeman; print(kubeman.__version__)"
+
+# Reinstall dependencies
+uv pip install -e .
+
+# Render templates with debug output
+python -m kubeman render --file render.py
+
+# Check for syntax errors in templates
+python -c "from templates import airflow_chart, dog_breeds_db_chart, dog_breeds_api_chart"
+```
+
+#### Manifests Not Generated
+```bash
+# Clean old manifests
+rm -rf manifests/
+
+# Render fresh
+python -m kubeman render --file render.py
+
+# Check generated files
+ls -R manifests/
+```
+
 ### Helm Issues
 
 #### Helm Chart Update Failed
@@ -722,11 +811,12 @@ kind load docker-image dog-breeds-api:latest --name airflow-cluster
 # Update Helm repositories
 helm repo update apache-airflow
 
-# Check current values
+# Check current values (generated from kubeman template)
 helm get values airflow -n airflow
 
 # Dry-run upgrade
-helm upgrade airflow apache-airflow/airflow -n airflow -f helm/values.yaml --dry-run
+python -c "from templates.airflow_chart import AirflowChart; import yaml; chart = AirflowChart(); print(yaml.dump(chart.generate_values()))" | \
+  helm upgrade airflow apache-airflow/airflow -n airflow --values - --dry-run
 ```
 
 ### Network Issues
@@ -825,6 +915,38 @@ ORDER BY execution_date DESC;
 3. View asset events and lineage
 4. Each event links to a database record via the asset URI
 
+## Development
+
+### Template Development
+
+To modify Kubernetes resources, edit the Python templates in `templates/`:
+
+```python
+# Example: Add a new ConfigMap to dog_breeds_api_chart.py
+self.add_configmap(
+    name="new-config",
+    namespace="dog-breeds",
+    data={"KEY": "value"},
+    labels=labels,
+)
+```
+
+After modifying templates:
+```bash
+# Render manifests
+python -m kubeman render --file render.py
+
+# Apply changes
+python -m kubeman apply --file render.py --namespace dog-breeds
+```
+
+### Adding New Resources
+
+1. Create a new template class in `templates/`
+2. Register it with `@TemplateRegistry.register`
+3. Import it in `render.py`
+4. Render and apply
+
 ## References
 
 - [Apache Airflow Documentation](https://airflow.apache.org/docs/)
@@ -833,6 +955,7 @@ ORDER BY execution_date DESC;
 - [Airflow Assets Documentation](https://airflow.apache.org/docs/apache-airflow/stable/concepts/assets.html)
 - [kind Documentation](https://kind.sigs.k8s.io/)
 - [Helm Documentation](https://helm.sh/docs/)
+- [kubeman Documentation](https://github.com/your-org/kubeman) (v0.3.0)
 
 ## License
 
