@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
-import { getRecentBreeds, getBreedSummary, checkHealth } from '../api';
+import { getRecentBreeds, checkHealth } from '../api';
 import { BreedCard } from './BreedCard';
-import type { DogBreed } from '../types';
+import type { DogBreed } from '../api';
 
 export function BreedDashboard() {
-  const [breeds, setBreeds] = useState<(DogBreed & { run_id?: string; start_date?: string; state?: string })[]>([]);
+  const [breeds, setBreeds] = useState<DogBreed[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
 
   const fetchBreeds = async () => {
     try {

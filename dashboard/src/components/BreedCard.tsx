@@ -1,7 +1,7 @@
-import type { DogBreed } from '../types';
+import type { DogBreed } from '../api';
 
 interface BreedCardProps {
-  breed: DogBreed & { run_id?: string; start_date?: string; state?: string };
+  breed: DogBreed;
 }
 
 export function BreedCard({ breed }: BreedCardProps) {
